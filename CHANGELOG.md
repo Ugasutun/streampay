@@ -277,6 +277,23 @@ interface: they are only ever appended to, never renumbered or reused.
   cannot ship a dead link again.
 - Create-form failures decode to `StreamError` names like every other path
   (they were surfaced as raw error strings).
+- `follow-redirects` 1.16.0 → 1.16.1 in `frontend/package-lock.json`. Two
+  high-severity advisories published 2026-10-20 (`GHSA-q3jh-wrc6-jgq8`,
+  `GHSA-8r9p-f939-6h3c`) cover `>= 1.16.0, < 1.16.1`, which turned
+  `npm audit --omit=dev --audit-level=high` red on every open pull request —
+  including the ones that touched no dependency. The package is transitive
+  (`@stellar/stellar-sdk` → `axios` → `follow-redirects`) and 1.16.1 already
+  satisfies the `^1.16.0` range axios declares, so this is a re-resolve of the
+  lockfile rather than an upgrade, and unlike the 0.3.0 `postcss`/`toml` case it
+  needed no `overrides` pin.
+- `rustls-webpki` 0.103.15 → 0.103.16 and `webpki-roots` 1.0.9 → 1.0.10 in
+  `Cargo.lock`. `RUSTSEC-2026-0382` and `RUSTSEC-2026-0381` (both published
+  2026-10-20) cover the emSign roots whose private keys are now public, and they
+  reach the workspace transitively through `reqwest` from `streampay-state`, so
+  the Security job's `cargo deny check` went red on every open pull request.
+  Both patches are in-range, so `cargo update -p` for each is a four-line lock
+  re-resolve — no crate added, no other crate moved, and no `deny.toml` ignore
+  entry needed.
 
 ## [0.3.0] - 2026-10-04
 
