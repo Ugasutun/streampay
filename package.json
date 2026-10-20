@@ -29,6 +29,7 @@
     "generated:surface": "bash scripts/check_generated.sh surface",
     "generated:catalog": "bash scripts/check_generated.sh catalog",
     "generated:vectors": "bash scripts/check_generated.sh vectors",
+    "generated:storage": "bash scripts/check_generated.sh storage",
     "eol:check": "bash scripts/check_line_endings.sh",
     "codes:check": "bash scripts/check_error_codes.sh",
     "links:check": "node scripts/check_docs_links.mjs",
