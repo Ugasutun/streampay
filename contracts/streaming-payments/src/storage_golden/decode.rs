@@ -57,7 +57,12 @@ fn expected_topic_count(name: &str) -> usize {
         | "oracle_time_reported"
         | "oracle_stale_fallback"
         | "ownership_proposed"
-        | "ownership_accepted" => 2,
+        | "ownership_accepted"
+        | "governance_signers_set"
+        | "governance_action_proposed"
+        | "governance_action_signed"
+        | "governance_action_vetoed"
+        | "governance_action_executed" => 2,
         other => panic!("unknown event name {other}: add it to the topic table"),
     }
 }
@@ -65,7 +70,7 @@ fn expected_topic_count(name: &str) -> usize {
 /// Every persisted kind the scenario must pin. A storage key added to the
 /// contract but absent from this corpus (or from `kind_for_key`'s dispatch)
 /// fails coverage or generation, forcing a deliberate layout change.
-const COVERED_KINDS: [&str; 32] = [
+const COVERED_KINDS: [&str; 36] = [
     "next_stream_id",
     "stream",
     "recipient_streams",
@@ -98,6 +103,10 @@ const COVERED_KINDS: [&str; 32] = [
     "beneficiary_key",
     "beneficiary_spend",
     "claim_nonce",
+    "signers",
+    "veto_window",
+    "proposal_count",
+    "proposal",
 ];
 
 /// Decodes a golden value with the typed decoder the in-development build
@@ -135,6 +144,9 @@ pub(crate) fn typed_roundtrip(
         "oracle_report" => rt::<OracleReport>(env, val),
         "sponsor_config" => rt::<SponsorConfig>(env, val),
         "sponsor_period" | "beneficiary_spend" => rt::<PeriodSpend>(env, val),
+        "signers" => rt::<soroban_sdk::Vec<soroban_sdk::Address>>(env, val),
+        "veto_window" | "proposal_count" => rt::<u64>(env, val),
+        "proposal" => rt::<crate::Proposal>(env, val),
         _ => unreachable!("kind {kind} must not reach typed_roundtrip"),
     }
 }

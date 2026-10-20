@@ -109,10 +109,36 @@ fn sign_digest(env: &Env, kp: &KeyPair, digest: &BytesN<32>) -> BytesN<64> {
     BytesN::from_array(env, &kp.secret.sign(&digest.to_array()).to_bytes())
 }
 
-/// What the scenario wrote, for the fixture generator to dump.
+/// What the scenario wrote, for the fixture generator to dump and for the
+/// upgrade replay to read back through the in-development build.
 pub(crate) struct ScenarioOut {
     pub(crate) env: Env,
     pub(crate) contract: Address,
+    pub(crate) token1: Address,
+    pub(crate) token2: Address,
+    pub(crate) sender: Address,
+    pub(crate) recipient: Address,
+    pub(crate) other_recipient: Address,
+    pub(crate) governor: Address,
+    /// Pending governor nominee left in storage at the final snapshot.
+    pub(crate) governor2: Address,
+    /// Policy admin after the completed handoff.
+    pub(crate) new_admin: Address,
+    /// Streams: 1 Active+topped-up (zero fee), 2 Cancelled by the sender
+    /// (zero fee), 3 Depleted (fee-charged), 4 and 5 created by executed
+    /// intents, 6 created by the batch entrypoint (fee-charged).
+    pub(crate) s1: u64,
+    pub(crate) s2: u64,
+    pub(crate) s3: u64,
+    pub(crate) s4: u64,
+    pub(crate) s5: u64,
+    pub(crate) s6: u64,
+    /// Intents: 1 Executed, 2 Pending (recurring, one of two done),
+    /// 3 Cancelled, 4 Expired.
+    pub(crate) i1: u64,
+    pub(crate) i2: u64,
+    pub(crate) i3: u64,
+    pub(crate) i4: u64,
     /// Events captured per invocation, keyed by the snake-case event name
     /// (first topic). First occurrence of each name only.
     pub(crate) events: BTreeMap<String, xdr::ContractEvent>,
@@ -544,53 +570,39 @@ pub(crate) fn run(baseline_wasm: Option<Vec<u8>>) -> ScenarioOut {
     // module documents, so read it back here — before the generator's final
     // `execute_upgrade`, after which the instance answers with the released
     // build's shapes and these typed reads no longer describe this build.
-    assert_eq!((s1, s2, s3, s4, s5, s6), (1, 2, 3, 4, 5, 6));
-    assert_eq!((i1, i2, i3, i4), (1, 2, 3, 4));
-    assert_eq!(
-        client.get_stream(&s1).token,
-        token1,
-        "stream 1 must be the fee-bearing asset the treasury records cover"
-    );
-    assert_eq!(
-        client.get_stream(&s1).sender,
-        sender,
-        "stream 1 must still belong to the scenario's sender"
-    );
-    assert_eq!(
-        client.get_stream(&s5).token,
-        token2,
-        "stream 5 must be the intent-funded stream on the second asset"
-    );
-    assert_eq!(
-        client.get_stream(&s6).recipient,
-        other_recipient,
-        "stream 6 must be the batch entrypoint's stream"
-    );
-    assert_eq!(
-        client.policy_admin(),
-        Some(new_admin),
-        "the completed policy handoff must be in the corpus"
-    );
-    let (stored_governor, pending_governor) = env.as_contract(&contract, || {
-        (
-            crate::treasury::governor(&env),
-            crate::treasury::pending_governor(&env),
-        )
-    });
-    assert_eq!(
-        stored_governor, governor,
-        "the stored governor must be the scenario's governor"
-    );
-    assert_eq!(
-        pending_governor,
-        Some(governor2),
-        "the pending governor nominee must be in the corpus"
-    );
+    //
+    // The replay path skips it entirely: there, the instance has *always*
+    // been the released build, so its getters return the released struct
+    // layouts, which this build's types legitimately cannot convert. The
+    // replay test reads the same records back with this build's types after
+    // the upgrade, which is the assertion that actually carries signal.
     if !replay {
+        assert_eq!((s1, s2, s3, s4, s5, s6), (1, 2, 3, 4, 5, 6));
+        assert_eq!((i1, i2, i3, i4), (1, 2, 3, 4));
+        assert_eq!(
+            client.get_stream(&s1).token,
+            token1,
+            "stream 1 must be the fee-bearing asset the treasury records cover"
+        );
+        assert_eq!(
+            client.get_stream(&s1).sender,
+            sender,
+            "stream 1 must still belong to the scenario's sender"
+        );
         assert_eq!(
             client.get_stream(&s1).recipient,
             recipient,
             "stream 1's recipient must be the address the sponsored claim paid"
+        );
+        assert_eq!(
+            client.get_stream(&s5).token,
+            token2,
+            "stream 5 must be the intent-funded stream on the second asset"
+        );
+        assert_eq!(
+            client.get_stream(&s6).recipient,
+            other_recipient,
+            "stream 6 must be the batch entrypoint's stream"
         );
         assert_eq!(
             client.get_stream(&s4).recipient,
@@ -603,6 +615,26 @@ pub(crate) fn run(baseline_wasm: Option<Vec<u8>>) -> ScenarioOut {
         assert_eq!(
             pending.new_owner, owner3,
             "the pending proposal must name the address it was proposed for"
+        );
+        assert_eq!(
+            client.policy_admin(),
+            Some(new_admin.clone()),
+            "the completed policy handoff must be in the corpus"
+        );
+        let (stored_governor, pending_governor) = env.as_contract(&contract, || {
+            (
+                crate::treasury::governor(&env),
+                crate::treasury::pending_governor(&env),
+            )
+        });
+        assert_eq!(
+            stored_governor, governor,
+            "the stored governor must be the scenario's governor"
+        );
+        assert_eq!(
+            pending_governor,
+            Some(governor2.clone()),
+            "the pending governor nominee must be in the corpus"
         );
     }
 
@@ -622,6 +654,24 @@ pub(crate) fn run(baseline_wasm: Option<Vec<u8>>) -> ScenarioOut {
     ScenarioOut {
         env,
         contract,
+        token1,
+        token2,
+        sender,
+        recipient,
+        other_recipient,
+        governor,
+        governor2,
+        new_admin,
+        s1,
+        s2,
+        s3,
+        s4,
+        s5,
+        s6,
+        i1,
+        i2,
+        i3,
+        i4,
         events: events.into_inner(),
         snapshot_a,
         snapshot_b,

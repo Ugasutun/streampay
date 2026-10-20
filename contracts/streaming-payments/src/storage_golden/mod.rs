@@ -41,6 +41,7 @@ use soroban_sdk::{Env, IntoVal, TryFromVal, TryIntoVal, Val};
 pub(crate) mod decode;
 pub(crate) mod generate;
 pub(crate) mod mid_enum;
+pub(crate) mod replay;
 pub(crate) mod scenario;
 
 /// Repo-level fixture directory: `<repo root>/test_fixtures/storage`.
@@ -103,6 +104,14 @@ pub(crate) fn baseline_wasm_bytes(env: &Env) -> Vec<u8> {
         );
     }
     bytes
+}
+
+/// The in-development wasm artifact produced by `stellar contract build`.
+/// The replay harness needs it to boot the current build next to the
+/// baseline one, so the wasm-only assertions are gated on its presence.
+pub(crate) fn dev_wasm_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/wasm32v1-none/release/streampay_contract.wasm")
 }
 
 // ------------------------------------------------------------- xdr <-> bin --
