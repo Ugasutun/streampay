@@ -7,6 +7,7 @@
 #   bash scripts/check_generated.sh surface    # docs/ERROR_SURFACE.md
 #   bash scripts/check_generated.sh catalog    # docs/errors.md, docs/errors/*, frontend/lib/errors.ts
 #   bash scripts/check_generated.sh vectors    # tests/vectors/accrual_vectors.json
+#   bash scripts/check_generated.sh storage    # test_fixtures/storage/ corpus
 #
 # This is the single source of truth for the "generated files are fresh" gates:
 # CI calls it per area (in the job that already has the right toolchain) and
@@ -80,17 +81,26 @@ run_vectors() {
   check_drift "tests/vectors" tests/vectors
 }
 
+run_storage() {
+  say "storage-layout fixture corpus (storage_golden::generate)"
+  command -v cargo >/dev/null 2>&1 || { echo "    cargo not found — skipping storage area"; return 0; }
+  cargo test -q -p streampay-contract --lib --locked storage_golden::generate -- --ignored
+  check_drift "test_fixtures/storage" test_fixtures/storage
+}
+
 case "$AREA" in
   surface) run_surface ;;
   catalog) run_catalog ;;
   vectors) run_vectors ;;
+  storage) run_storage ;;
   all)
     run_surface
     run_catalog
     run_vectors
+    run_storage
     ;;
   *)
-    die "unknown area '$AREA' (expected: surface | catalog | vectors | all)"
+    die "unknown area '$AREA' (expected: surface | catalog | vectors | storage | all)"
     exit 2
     ;;
 esac
