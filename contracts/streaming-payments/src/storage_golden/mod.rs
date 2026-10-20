@@ -35,10 +35,12 @@ use std::vec::Vec;
 use serde::{Deserialize, Serialize};
 use soroban_sdk::xdr::{
     self, ContractDataEntry, LedgerEntry, LedgerEntryData, LedgerKey, LedgerKeyContractData,
-    WriteXdr,
+    ReadXdr, WriteXdr,
 };
-use soroban_sdk::{Env, IntoVal, TryFromVal, Val};
+use soroban_sdk::{Env, IntoVal, TryFromVal, TryIntoVal, Val};
+pub(crate) mod decode;
 pub(crate) mod generate;
+pub(crate) mod mid_enum;
 pub(crate) mod scenario;
 
 /// Repo-level fixture directory: `<repo root>/test_fixtures/storage`.
@@ -145,6 +147,37 @@ pub(crate) fn write_event_bin(
     std::fs::write(path, out).map_err(|e| format!("write {}: {e}", path.display()))
 }
 
+pub(crate) fn read_record_bin(path: &Path) -> (LedgerKey, LedgerEntry) {
+    let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let (key, rest) = split_len_prefixed(&bytes);
+    let (entry, rest) = split_len_prefixed(rest);
+    assert!(rest.is_empty(), "{}: trailing bytes", path.display());
+    let key = LedgerKey::from_xdr(key, xdr::Limits::none())
+        .unwrap_or_else(|e| panic!("{}: bad LedgerKey xdr: {e:?}", path.display()));
+    let entry = LedgerEntry::from_xdr(entry, xdr::Limits::none())
+        .unwrap_or_else(|e| panic!("{}: bad LedgerEntry xdr: {e:?}", path.display()));
+    (key, entry)
+}
+
+pub(crate) fn read_event_bin(path: &Path) -> (xdr::ScVec, xdr::ScVal) {
+    let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let (topics, rest) = split_len_prefixed(&bytes);
+    let (data, rest) = split_len_prefixed(rest);
+    assert!(rest.is_empty(), "{}: trailing bytes", path.display());
+    let topics = xdr::ScVec::from_xdr(topics, xdr::Limits::none())
+        .unwrap_or_else(|e| panic!("{}: bad topics xdr: {e:?}", path.display()));
+    let data = xdr::ScVal::from_xdr(data, xdr::Limits::none())
+        .unwrap_or_else(|e| panic!("{}: bad data xdr: {e:?}", path.display()));
+    (topics, data)
+}
+
+fn split_len_prefixed(bytes: &[u8]) -> (&[u8], &[u8]) {
+    assert!(bytes.len() >= 4, "truncated blob");
+    let len = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    assert!(bytes.len() >= 4 + len, "truncated blob");
+    (&bytes[4..4 + len], &bytes[4 + len..])
+}
+
 /// Extracts the `(key, ContractDataEntry)` of a record blob. The durability
 /// lives on the entry (the key's is authoritative for the LedgerKey form).
 pub(crate) fn contract_data(
@@ -191,6 +224,34 @@ pub(crate) fn sc_address_contract_id(a: &xdr::ScAddress) -> Option<&xdr::Contrac
         xdr::ScAddress::Contract(h) => Some(h),
         _ => None,
     }
+}
+
+/// Raw golden `ScVal` → host `Val`, then into the typed value the
+/// in-development build generates for it. The SDK does not implement
+/// `TryFromVal<Env, ScVal>` for primitives (`u64`, `bool`, `Address`, …),
+/// but every persisted type — primitive, `Vec`, `Option`, or
+/// `#[contracttype]` struct — goes through `Val`, so this is the single
+/// door the decode tests use.
+pub(crate) fn scval_to_val(env: &Env, sc: &xdr::ScVal) -> Result<Val, String> {
+    Val::try_from_val(env, sc).map_err(|e| format!("{e:?}"))
+}
+
+/// Host `Val` → raw golden-form `ScVal` bytes, the same door in reverse.
+pub(crate) fn val_to_scval(env: &Env, val: &Val) -> Result<xdr::ScVal, String> {
+    xdr::ScVal::try_from_val(env, val).map_err(|e| format!("{e:?}"))
+}
+
+/// Decode `sc` with the in-development type `T` and re-encode it to an
+/// `ScVal`, returning `Err` when the current types cannot read what the
+/// release line wrote.
+pub(crate) fn typed_decode_encode<T>(env: &Env, sc: &xdr::ScVal) -> Result<xdr::ScVal, String>
+where
+    T: TryFromVal<Env, Val> + TryIntoVal<Env, Val>,
+{
+    let val = scval_to_val(env, sc)?;
+    let typed = T::try_from_val(env, &val).map_err(|e| format!("{e:?}"))?;
+    let back: Val = typed.try_into_val(env).map_err(|e| format!("{e:?}"))?;
+    val_to_scval(env, &back)
 }
 
 // ------------------------------------------------------------------ render --
@@ -444,4 +505,38 @@ pub(crate) struct EventMeta {
 pub(crate) struct Manifest {
     pub records: Vec<RecordMeta>,
     pub events: Vec<EventMeta>,
+}
+
+pub(crate) fn read_manifest() -> Manifest {
+    let text = std::fs::read_to_string(manifest_path())
+        .expect("test_fixtures/storage/manifest.json missing; run the generator (see docs/STORAGE_LAYOUT.md)");
+    serde_json::from_str(&text).expect("manifest.json is not valid JSON")
+}
+
+/// Field-for-field diff of two flattened record maps. The returned strings
+/// name the exact field that changed (missing / unexpected / mismatched
+/// value), which is what the failure message must show — not "bytes differ".
+pub(crate) fn diff_fields(
+    label: &str,
+    want: &BTreeMap<String, String>,
+    got: &BTreeMap<String, String>,
+) -> Vec<String> {
+    let mut diffs = Vec::new();
+    for (k, w) in want {
+        match got.get(k) {
+            None => diffs.push(format!(
+                "{label}.{k}: present in golden, MISSING after decode"
+            )),
+            Some(g) if g != w => diffs.push(format!("{label}.{k}: golden={w} decoded={g}")),
+            Some(_) => {}
+        }
+    }
+    for (k, g) in got {
+        if !want.contains_key(k) {
+            diffs.push(format!(
+                "{label}.{k}: NOT IN GOLDEN, appeared after decode (g={g})"
+            ));
+        }
+    }
+    diffs
 }
