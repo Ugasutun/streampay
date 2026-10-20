@@ -72,6 +72,10 @@ fuzz/coverage/
 # committed corpus under test_fixtures/storage/ is the artifact of record.
 contracts/streaming-payments/test_snapshots/storage_golden/
 
+# Per-operator state of scripts/storage_golden_smoke.sh (contract id, recorded
+# read-backs) for an in-flight 24 h testnet rehearsal.
+.storage_golden_smoke/
+
 # Python bytecode
 __pycache__/
 

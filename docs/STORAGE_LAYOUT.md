@@ -231,6 +231,12 @@ regressed, then proves the new bytecode still writes (`execute_scheduled`,
 the evidence is the `pre.*.json` / `post.*.json` pair for every read. It needs
 `stellar-cli`, `cargo`, `node`, `curl`, and testnet funds, and is not part of CI.
 
+While `stream` is in `DECLARED_BASELINE_BREAKS`, expect this rehearsal to fail in
+`verify` on the `stream` read: that re-read goes through the upgraded instance,
+and this build's `get_stream` cannot decode a record the baseline wrote. It is the
+same break the offline probe pins, on a real chain, and it disappears when the
+migration lands.
+
 ## Known limits
 
 * Only `ContractData` keys are pinned: token balances and other contracts'
