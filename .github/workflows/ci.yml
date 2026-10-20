@@ -20,6 +20,11 @@ jobs:
       # Single source of truth for the Wasm size budget (KB, issue #35).
       # Raise deliberately in a PR with justification if the contract grows.
       WASM_SIZE_BUDGET_KB: 120
+      # The upgrade replay skips itself when this build's wasm artifact is not
+      # on disk, which is the right default for a contributor with no wasm
+      # toolchain. Here the artifact is always built first, so a missing or
+      # oversized one means the gate silently lost its coverage: fail loudly.
+      STORAGE_GOLDEN_REQUIRE_WASM: 1
     steps:
       - uses: actions/checkout@v7
 
@@ -83,6 +88,43 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --all-targets -- -D warnings
 
+      # Built BEFORE the test steps on purpose: the storage-layout upgrade
+      # replay boots the committed release-line wasm and swaps the live
+      # instance over to this artifact through the contract's own
+      # execute_upgrade, so the gate needs those bytes on disk
+      # (STORAGE_GOLDEN_REQUIRE_WASM makes a missing artifact fail rather than
+      # silently skip the replay).
+      # soroban-sdk 28 rejects a plain `cargo build --target wasm32v1-none`
+      # (its build script requires the stellar-cli >= 25.2 spec-shaking v2
+      # handshake), so the supported build path is `stellar contract build`.
+      - name: Install stellar-cli
+        run: |
+          curl -fsSL https://github.com/stellar/stellar-cli/releases/download/v28.1.0/stellar-cli-28.1.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+          sudo install stellar /usr/local/bin/stellar
+          stellar --version
+
+      - name: Wasm build (stellar contract build)
+        working-directory: contracts/streaming-payments
+        run: stellar contract build
+
+      - name: Wasm size budget check
+        run: |
+          wasm=target/wasm32v1-none/release/streampay_contract.wasm
+          size=$(stat -c '%s' "$wasm")
+          budget=$(( WASM_SIZE_BUDGET_KB * 1024 ))
+          {
+            echo "### Contract Wasm size"
+            echo ""
+            echo "| Size | Budget | Headroom |"
+            echo "| --- | --- | --- |"
+            echo "| ${size} bytes ($(( size / 1024 )) KB) | ${WASM_SIZE_BUDGET_KB} KB (${budget} bytes) | $(( (budget - size) / 1024 )) KB |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$size" -gt "$budget" ]; then
+            echo "::error::${wasm} is ${size} bytes, over the ${WASM_SIZE_BUDGET_KB} KB budget (${budget} bytes). Check for dependency bloat or bump the budget deliberately."
+            exit 1
+          fi
+          echo "Wasm size ${size} bytes is within the ${WASM_SIZE_BUDGET_KB} KB budget."
+
       - name: Unit + property tests
         run: cargo test --workspace --locked
 
@@ -115,37 +157,6 @@ jobs:
 
       - name: llvm-cov (summary)
         run: cargo llvm-cov --workspace --summary-only
-
-      # soroban-sdk 28 rejects a plain `cargo build --target wasm32v1-none`
-      # (its build script requires the stellar-cli >= 25.2 spec-shaking v2
-      # handshake), so the supported build path is `stellar contract build`.
-      - name: Install stellar-cli
-        run: |
-          curl -fsSL https://github.com/stellar/stellar-cli/releases/download/v28.1.0/stellar-cli-28.1.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
-          sudo install stellar /usr/local/bin/stellar
-          stellar --version
-
-      - name: Wasm build (stellar contract build)
-        working-directory: contracts/streaming-payments
-        run: stellar contract build
-
-      - name: Wasm size budget check
-        run: |
-          wasm=target/wasm32v1-none/release/streampay_contract.wasm
-          size=$(stat -c '%s' "$wasm")
-          budget=$(( WASM_SIZE_BUDGET_KB * 1024 ))
-          {
-            echo "### Contract Wasm size"
-            echo ""
-            echo "| Size | Budget | Headroom |"
-            echo "| --- | --- | --- |"
-            echo "| ${size} bytes ($(( size / 1024 )) KB) | ${WASM_SIZE_BUDGET_KB} KB (${budget} bytes) | $(( (budget - size) / 1024 )) KB |"
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$size" -gt "$budget" ]; then
-            echo "::error::${wasm} is ${size} bytes, over the ${WASM_SIZE_BUDGET_KB} KB budget (${budget} bytes). Check for dependency bloat or bump the budget deliberately."
-            exit 1
-          fi
-          echo "Wasm size ${size} bytes is within the ${WASM_SIZE_BUDGET_KB} KB budget."
 
       # Published per PR so reviewers can diff builds; releases keep the
       # SHA-256 digest flow in release.yml.
