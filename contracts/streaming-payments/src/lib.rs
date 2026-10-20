@@ -76,6 +76,8 @@ mod schedule_test;
 pub(crate) mod sponsor;
 #[cfg(test)]
 mod sponsor_test;
+#[cfg(test)]
+mod storage_golden;
 mod stream;
 pub mod surface;
 #[cfg(test)]
