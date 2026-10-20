@@ -14,6 +14,8 @@ The dashboard cannot server-render address-specific streams before Freighter gra
 
 The dashboard's create and stream-list panels are separate lazy client islands, each with its own `Loading…` Suspense fallback. The stream detail route has a route-data Suspense boundary. Its live available-balance read begins in the client after the initial server-rendered stream arrives.
 
+The 15-second refresh and 1-second ticker on `/stream/[id]` interpolate accrued balances against the browser clock while the contract enforces at `ledger().timestamp()`. The three-clock model, the skew vocabulary (epsilon / drift / boundary), and the never-over-up display contract are specified in [TIME_HANDLING.md](TIME_HANDLING.md) and pinned by `frontend/lib/clock-skew.test.ts` + `frontend/lib/live-accrual.test.ts`.
+
 ## Waterfall audit
 
 Counts below are Soroban `simulateTransaction` requests, not HTTP requests. They are derived from the call sites and should be checked against the browser Network panel/RPC trace for a benchmark deployment.
