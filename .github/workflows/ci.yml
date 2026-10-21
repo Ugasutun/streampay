@@ -17,9 +17,18 @@ jobs:
     name: Contract — test / fmt / clippy / wasm
     runs-on: ubuntu-latest
     env:
-      # Single source of truth for the Wasm size budget (KB, issue #35).
-      # Raise deliberately in a PR with justification if the contract grows.
-      WASM_SIZE_BUDGET_KB: 120
+      # Single source of truth for the Wasm size budget (KB). The rule is:
+      # the smallest whole KB that the current public interface fits, so the
+      # ratchet stays as tight as the interface allows. 77 KB = this build's
+      # 78,266 B + 582 B of headroom. History: issue #58's techniques took the
+      # contract from 91,004 B to 60,386 B, upstream's ownership-transfer +
+      # vault surface added 3,757 B (gate: 63 KB), and the governance timelock
+      # that has now merged adds 14,123 B more — 10,005 B of `code`, 3,072 B of
+      # structural spec entries, 748 B of `data` topics and 235 B of exports, on
+      # top of the ungated `///` docs its new interface items carried (6,416 B,
+      # recovered by re-applying Technique 1; docs/WASM_SIZE.md). The next
+      # entrypoint addition should trigger the split discussion, not a bump.
+      WASM_SIZE_BUDGET_KB: 77
     steps:
       - uses: actions/checkout@v7
 
@@ -128,6 +137,18 @@ jobs:
       - name: Wasm build (stellar contract build)
         working-directory: contracts/streaming-payments
         run: stellar contract build
+
+      # Issue #58's Technique 1 invariant, as a gate rather than a one-off edit:
+      # no `#[contracttype]`/`#[contracterror]`/`#[contractevent]` item and no
+      # `pub fn` in `#[contractimpl]` may carry a plain `///` doc comment,
+      # because `soroban-sdk-macros` embeds those strings into `contractspecv0`
+      # (~6.4 KB of the binary when the governance interface merged with plain
+      # docs and silently broke this rule). Host documentation is unaffected —
+      # the same text lives in a `cfg_attr(not(target_family = "wasm"), doc)`
+      # attribute. Scoped to streampay deliberately: the other crates are not
+      # covered by the size budget below.
+      - name: Interface doc strings stay out of the Wasm spec
+        run: python3 scripts/gate_interface_docs.py --check contracts/streaming-payments/src/*.rs
 
       - name: Wasm size budget check
         run: |

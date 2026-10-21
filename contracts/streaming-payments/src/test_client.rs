@@ -11,8 +11,9 @@
 use soroban_sdk::{contractclient, Address, BytesN, Env, Vec};
 
 use crate::{
-    BatchEntry, FeeScan, MigrationStatus, PendingOwnership, PendingUpgrade, PeriodSpend,
-    ScheduledIntent, SponsorConfig, Stream, StreamError, StreamInput, StreamPolicy, TreasuryStatus,
+    BatchEntry, FeeScan, GovernanceAction, MigrationStatus, PendingOwnership, PendingUpgrade,
+    PeriodSpend, Proposal, ScheduledIntent, SponsorConfig, Stream, StreamError, StreamInput,
+    StreamPolicy, TreasuryStatus,
 };
 
 /// Interface of the StreamPay streaming-payments contract.
@@ -209,4 +210,26 @@ pub trait StreamingPaymentsApi {
     fn resolve_time(env: Env, stream_id: u64, use_oracle: bool) -> crate::ResolvedTime;
     fn oracle_config(env: Env) -> Option<crate::OracleConfig>;
     fn oracle_report(env: Env, publisher: Address) -> Option<crate::OracleReport>;
+
+    // ------------------------------------------------------- governance surface
+    fn governance_bootstrap(
+        env: Env,
+        caller: Address,
+        signers: Vec<Address>,
+        veto_window: u64,
+    ) -> Result<(), StreamError>;
+    fn governance_propose(
+        env: Env,
+        caller: Address,
+        action: GovernanceAction,
+    ) -> Result<u64, StreamError>;
+    fn governance_sign(env: Env, caller: Address, proposal_id: u64) -> Result<u32, StreamError>;
+    fn governance_veto(env: Env, caller: Address, proposal_id: u64) -> Result<(), StreamError>;
+    fn governance_execute(env: Env, executor: Address, proposal_id: u64)
+        -> Result<(), StreamError>;
+    fn governance_is_initialized(env: Env) -> bool;
+    fn governance_signers(env: Env) -> Vec<Address>;
+    fn governance_veto_window(env: Env) -> u64;
+    fn governance_proposal(env: Env, proposal_id: u64) -> Option<Proposal>;
+    fn governance_proposal_count(env: Env) -> u64;
 }

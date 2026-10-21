@@ -198,13 +198,48 @@ pub enum Branch {
     NoPendingOwnership,
     /// `cancel_ownership_transfer`: the caller did not create the proposal.
     CancelProposalNotProposer,
+    // ------------------------------------------------------------ governance
+    // Issue #119: admin actions behind the two-key timelock. Named after the
+    // rule that refuses the call, because the rule *is* the security property.
+    /// A governance entrypoint called before the signer set was bootstrapped.
+    GovernanceNotInitialized,
+    /// `governance_bootstrap` on a contract that already has a signer set.
+    GovernanceAlreadyInitialized,
+    /// The caller is not in the signer set.
+    NotGovernanceSigner,
+    /// A proposed signer set lists the same address twice — one key in two slots.
+    GovernanceDuplicateSigner,
+    /// A proposed signer set is empty.
+    GovernanceSignerSetEmpty,
+    /// A proposed signer set exceeds MAX_SIGNERS.
+    GovernanceTooManySigners,
+    /// A proposed signer set cannot supply two distinct signatures.
+    GovernanceSignersNotDistinct,
+    /// No proposal is stored under the supplied id.
+    GovernanceProposalNotFound,
+    /// `governance_execute`: the veto window is still open.
+    GovernanceVetoWindowOpen,
+    /// `governance_veto`: the veto window has closed.
+    GovernanceVetoWindowClosed,
+    /// A configured veto window below MIN_VETO_WINDOW_SECONDS.
+    GovernanceVetoWindowTooShort,
+    /// The proposal was vetoed and is dead.
+    GovernanceAlreadyVetoed,
+    /// The proposal has already been executed.
+    GovernanceAlreadyExecuted,
+    /// `governance_sign`: this address already signed the proposal.
+    GovernanceDuplicateSignature,
+    /// `governance_execute`: not enough distinct, still-current signatures.
+    GovernanceSignaturesInsufficient,
+    /// A migrated admin entry point called directly after bootstrap.
+    GovernanceTimelockRequired,
 }
 
 impl Branch {
     /// Every branch, in declaration order. The matrix test walks this list and
     /// the coverage test requires each [`StreamError`] variant to be produced by
     /// one of these (or retired).
-    pub const ALL: [Branch; 77] = [
+    pub const ALL: [Branch; 93] = [
         Branch::CreateDepositNonPositive,
         Branch::CreateStartTimeInPast,
         Branch::CreateInvalidTimeRange,
@@ -282,6 +317,22 @@ impl Branch {
         Branch::OwnershipProposalExpired,
         Branch::NoPendingOwnership,
         Branch::CancelProposalNotProposer,
+        Branch::GovernanceNotInitialized,
+        Branch::GovernanceAlreadyInitialized,
+        Branch::NotGovernanceSigner,
+        Branch::GovernanceDuplicateSigner,
+        Branch::GovernanceSignerSetEmpty,
+        Branch::GovernanceTooManySigners,
+        Branch::GovernanceSignersNotDistinct,
+        Branch::GovernanceProposalNotFound,
+        Branch::GovernanceVetoWindowOpen,
+        Branch::GovernanceVetoWindowClosed,
+        Branch::GovernanceVetoWindowTooShort,
+        Branch::GovernanceAlreadyVetoed,
+        Branch::GovernanceAlreadyExecuted,
+        Branch::GovernanceDuplicateSignature,
+        Branch::GovernanceSignaturesInsufficient,
+        Branch::GovernanceTimelockRequired,
     ];
 
     /// The entrypoint(s) through which this branch can fire. Shared helpers
@@ -344,6 +395,7 @@ impl Branch {
                 "execute_upgrade",
                 "migrate_storage",
                 "set_stream_policy",
+                "governance_bootstrap",
             ],
             Branch::AcceptGovernorNoPending | Branch::AcceptGovernorNotNominee => {
                 &["accept_governor"]
@@ -431,6 +483,51 @@ impl Branch {
                 &["accept_ownership_transfer", "cancel_ownership_transfer"]
             }
             Branch::CancelProposalNotProposer => &["cancel_ownership_transfer"],
+            // ------------------------------------------------------------ governance
+            Branch::GovernanceNotInitialized => &[
+                "governance_propose",
+                "governance_sign",
+                "governance_veto",
+                "governance_execute",
+            ],
+            Branch::GovernanceAlreadyInitialized => &["governance_bootstrap"],
+            Branch::NotGovernanceSigner => {
+                &["governance_propose", "governance_sign", "governance_veto"]
+            }
+            Branch::GovernanceDuplicateSigner
+            | Branch::GovernanceSignerSetEmpty
+            | Branch::GovernanceTooManySigners
+            | Branch::GovernanceSignersNotDistinct => &[
+                "governance_bootstrap",
+                "governance_propose",
+                "governance_execute",
+            ],
+            Branch::GovernanceVetoWindowTooShort => &["governance_bootstrap", "governance_propose"],
+            Branch::GovernanceProposalNotFound => {
+                &["governance_sign", "governance_veto", "governance_execute"]
+            }
+            Branch::GovernanceVetoWindowOpen | Branch::GovernanceSignaturesInsufficient => {
+                &["governance_execute"]
+            }
+            Branch::GovernanceVetoWindowClosed => &["governance_veto"],
+            Branch::GovernanceAlreadyVetoed => {
+                &["governance_sign", "governance_veto", "governance_execute"]
+            }
+            Branch::GovernanceAlreadyExecuted => {
+                &["governance_sign", "governance_veto", "governance_execute"]
+            }
+            Branch::GovernanceDuplicateSignature => &["governance_sign"],
+            Branch::GovernanceTimelockRequired => &[
+                "set_fee_bps",
+                "nominate_governor",
+                "withdraw_treasury",
+                "set_stream_policy",
+                "set_frozen",
+                "propose_upgrade",
+                "execute_upgrade",
+                "migrate_storage",
+                "set_oracle_config",
+            ],
         }
     }
 
@@ -518,6 +615,24 @@ impl Branch {
             Branch::ProposeAlreadyPending => StreamError::OwnershipProposalPending,
             Branch::OwnershipProposalExpired => StreamError::OwnershipProposalExpired,
             Branch::NoPendingOwnership => StreamError::NoPendingOwnership,
+            Branch::GovernanceNotInitialized => StreamError::GovernanceNotInitialized,
+            Branch::GovernanceAlreadyInitialized => StreamError::GovernanceAlreadyInitialized,
+            Branch::NotGovernanceSigner => StreamError::NotGovernanceSigner,
+            Branch::GovernanceDuplicateSigner => StreamError::GovernanceDuplicateSigner,
+            Branch::GovernanceSignerSetEmpty => StreamError::GovernanceSignerSetEmpty,
+            Branch::GovernanceTooManySigners => StreamError::GovernanceTooManySigners,
+            Branch::GovernanceSignersNotDistinct => StreamError::GovernanceSignersNotDistinct,
+            Branch::GovernanceProposalNotFound => StreamError::GovernanceProposalNotFound,
+            Branch::GovernanceVetoWindowOpen => StreamError::GovernanceVetoWindowOpen,
+            Branch::GovernanceVetoWindowClosed => StreamError::GovernanceVetoWindowClosed,
+            Branch::GovernanceVetoWindowTooShort => StreamError::GovernanceVetoWindowTooShort,
+            Branch::GovernanceAlreadyVetoed => StreamError::GovernanceAlreadyVetoed,
+            Branch::GovernanceAlreadyExecuted => StreamError::GovernanceAlreadyExecuted,
+            Branch::GovernanceDuplicateSignature => StreamError::GovernanceDuplicateSignature,
+            Branch::GovernanceSignaturesInsufficient => {
+                StreamError::GovernanceSignaturesInsufficient
+            }
+            Branch::GovernanceTimelockRequired => StreamError::GovernanceTimelockRequired,
         }
     }
 
@@ -664,6 +779,42 @@ impl Branch {
             Branch::NoPendingOwnership => "no ownership proposal is stored for the stream",
             Branch::CancelProposalNotProposer => {
                 "the caller did not create the pending ownership proposal"
+            }
+            Branch::GovernanceNotInitialized => {
+                "the governance signer set has not been bootstrapped"
+            }
+            Branch::GovernanceAlreadyInitialized => {
+                "governance_bootstrap was called but a signer set already exists"
+            }
+            Branch::NotGovernanceSigner => "the caller is not a member of the signer set",
+            Branch::GovernanceDuplicateSigner => {
+                "the signer set lists the same address twice (one key in two slots)"
+            }
+            Branch::GovernanceSignerSetEmpty => "the signer set is empty",
+            Branch::GovernanceTooManySigners => "the signer set exceeds MAX_SIGNERS",
+            Branch::GovernanceSignersNotDistinct => {
+                "the signer set holds fewer than two distinct keys"
+            }
+            Branch::GovernanceProposalNotFound => "no proposal is stored under the id",
+            Branch::GovernanceVetoWindowOpen => {
+                "execution was attempted before the veto window closed"
+            }
+            Branch::GovernanceVetoWindowClosed => {
+                "a veto was attempted after the veto window closed"
+            }
+            Branch::GovernanceVetoWindowTooShort => {
+                "the veto window is shorter than MIN_VETO_WINDOW_SECONDS"
+            }
+            Branch::GovernanceAlreadyVetoed => "the proposal was vetoed and is dead",
+            Branch::GovernanceAlreadyExecuted => "the proposal has already been executed",
+            Branch::GovernanceDuplicateSignature => {
+                "this address already signed the proposal; execution needs two distinct keys"
+            }
+            Branch::GovernanceSignaturesInsufficient => {
+                "fewer than the required distinct, still-current signatures are recorded"
+            }
+            Branch::GovernanceTimelockRequired => {
+                "the action requires an executed governance proposal now that governance is bootstrapped"
             }
         }
     }

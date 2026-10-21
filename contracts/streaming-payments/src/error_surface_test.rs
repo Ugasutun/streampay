@@ -107,6 +107,52 @@ fn sponsored_claim(
     )
 }
 
+// ------------------------------------------------------- governance probes ---
+//
+// Every governance branch except the bootstrap-time validation errors fires on a
+// contract whose signer set already exists, so the probes share one scaffolding
+// type rather than repeating the bootstrap ceremony 16 times.
+
+/// A quiet fixture with governance bootstrapped over two distinct signers.
+struct Governed {
+    f: Fixture,
+    a: Address,
+    b: Address,
+}
+
+impl Governed {
+    fn new() -> Self {
+        Self::with_window(crate::DEFAULT_VETO_WINDOW_SECONDS)
+    }
+
+    /// Bootstrap a quiet fixture over the two default distinct signers.
+    fn with_window(window: u64) -> Self {
+        let f = Fixture::setup_quiet();
+        let a = Address::generate(&f.env);
+        let b = Address::generate(&f.env);
+        let mut set = soroban_sdk::Vec::new(&f.env);
+        set.push_back(a.clone());
+        set.push_back(b.clone());
+        f.client
+            .mock_all_auths()
+            .governance_bootstrap(&f.governor, &set, &window);
+        Governed { f, a, b }
+    }
+
+    /// Propose a fee change from `caller` and return the proposal id.
+    fn propose_fee(&self, caller: &Address, new_fee_bps: u32) -> u64 {
+        self.f
+            .client
+            .mock_all_auths()
+            .governance_propose(caller, &crate::GovernanceAction::SetFeeBps(new_fee_bps))
+    }
+
+    /// Advance past the veto window.
+    fn mature(&self) {
+        self.f.advance_time(crate::DEFAULT_VETO_WINDOW_SECONDS + 1);
+    }
+}
+
 /// Triggers `branch` and returns the error the contract produced, or `None` for
 /// a branch classified [`Reachability::Defensive`] (no reachable trigger).
 fn probe(branch: Branch) -> Option<StreamError> {
@@ -977,6 +1023,198 @@ fn probe(branch: Branch) -> Option<StreamError> {
         Branch::AvailableBalanceOverflow | Branch::CancelSplitOverflow | Branch::PayoutOverflow => {
             None
         }
+
+        // ------------------------------------------------------- governance
+        Branch::GovernanceNotInitialized => {
+            let f = Fixture::setup_quiet();
+            let stranger = Address::generate(&f.env);
+            Some(rejected!(f.client.mock_all_auths().try_governance_propose(
+                &stranger,
+                &crate::GovernanceAction::SetFeeBps(100)
+            )))
+        }
+        Branch::GovernanceAlreadyInitialized => {
+            let g = Governed::new();
+            let mut set = soroban_sdk::Vec::new(&g.f.env);
+            set.push_back(g.a.clone());
+            set.push_back(g.b.clone());
+            Some(rejected!(g
+                .f
+                .client
+                .mock_all_auths()
+                .try_governance_bootstrap(
+                    &g.f.governor,
+                    &set,
+                    &crate::DEFAULT_VETO_WINDOW_SECONDS
+                )))
+        }
+        Branch::NotGovernanceSigner => {
+            let g = Governed::new();
+            let stranger = Address::generate(&g.f.env);
+            Some(rejected!(g
+                .f
+                .client
+                .mock_all_auths()
+                .try_governance_propose(
+                    &stranger,
+                    &crate::GovernanceAction::SetFeeBps(100)
+                )))
+        }
+        Branch::GovernanceDuplicateSigner => {
+            let f = Fixture::setup_quiet();
+            let a = Address::generate(&f.env);
+            let mut set = soroban_sdk::Vec::new(&f.env);
+            set.push_back(a.clone());
+            set.push_back(a.clone());
+            Some(rejected!(f
+                .client
+                .mock_all_auths()
+                .try_governance_bootstrap(
+                    &f.governor,
+                    &set,
+                    &crate::DEFAULT_VETO_WINDOW_SECONDS,
+                )))
+        }
+        Branch::GovernanceSignerSetEmpty => {
+            let f = Fixture::setup_quiet();
+            let set = soroban_sdk::Vec::new(&f.env);
+            Some(rejected!(f
+                .client
+                .mock_all_auths()
+                .try_governance_bootstrap(
+                    &f.governor,
+                    &set,
+                    &crate::DEFAULT_VETO_WINDOW_SECONDS,
+                )))
+        }
+        Branch::GovernanceTooManySigners => {
+            let f = Fixture::setup_quiet();
+            let mut set = soroban_sdk::Vec::new(&f.env);
+            for _ in 0..crate::MAX_SIGNERS + 1 {
+                set.push_back(Address::generate(&f.env));
+            }
+            Some(rejected!(f
+                .client
+                .mock_all_auths()
+                .try_governance_bootstrap(
+                    &f.governor,
+                    &set,
+                    &crate::DEFAULT_VETO_WINDOW_SECONDS,
+                )))
+        }
+        Branch::GovernanceSignersNotDistinct => {
+            let f = Fixture::setup_quiet();
+            let mut set = soroban_sdk::Vec::new(&f.env);
+            set.push_back(Address::generate(&f.env));
+            Some(rejected!(f
+                .client
+                .mock_all_auths()
+                .try_governance_bootstrap(
+                    &f.governor,
+                    &set,
+                    &crate::DEFAULT_VETO_WINDOW_SECONDS,
+                )))
+        }
+        Branch::GovernanceProposalNotFound => {
+            let g = Governed::new();
+            let id = g.propose_fee(&g.a, 100);
+            assert_eq!(id, 1);
+            Some(rejected!(g
+                .f
+                .client
+                .mock_all_auths()
+                .try_governance_sign(&g.b, &(id + 999))))
+        }
+        Branch::GovernanceVetoWindowOpen => {
+            let g = Governed::new();
+            let id = g.propose_fee(&g.a, 100);
+            g.f.client.mock_all_auths().governance_sign(&g.a, &id);
+            g.f.client.mock_all_auths().governance_sign(&g.b, &id);
+            Some(rejected!(g
+                .f
+                .client
+                .mock_all_auths()
+                .try_governance_execute(&Address::generate(&g.f.env), &id)))
+        }
+        Branch::GovernanceVetoWindowClosed => {
+            let g = Governed::new();
+            let id = g.propose_fee(&g.a, 100);
+            g.mature();
+            Some(rejected!(g
+                .f
+                .client
+                .mock_all_auths()
+                .try_governance_veto(&g.b, &id)))
+        }
+        Branch::GovernanceVetoWindowTooShort => {
+            let f = Fixture::setup_quiet();
+            let mut set = soroban_sdk::Vec::new(&f.env);
+            set.push_back(Address::generate(&f.env));
+            set.push_back(Address::generate(&f.env));
+            Some(rejected!(f
+                .client
+                .mock_all_auths()
+                .try_governance_bootstrap(
+                    &f.governor,
+                    &set,
+                    &(crate::MIN_VETO_WINDOW_SECONDS - 1),
+                )))
+        }
+        Branch::GovernanceAlreadyVetoed => {
+            let g = Governed::new();
+            let id = g.propose_fee(&g.a, 100);
+            g.f.client.mock_all_auths().governance_veto(&g.b, &id);
+            Some(rejected!(g
+                .f
+                .client
+                .mock_all_auths()
+                .try_governance_execute(&Address::generate(&g.f.env), &id)))
+        }
+        Branch::GovernanceAlreadyExecuted => {
+            let g = Governed::new();
+            let id = g.propose_fee(&g.a, 100);
+            g.f.client.mock_all_auths().governance_sign(&g.a, &id);
+            g.f.client.mock_all_auths().governance_sign(&g.b, &id);
+            g.mature();
+            let executor = Address::generate(&g.f.env);
+            g.f.client
+                .mock_all_auths()
+                .governance_execute(&executor, &id);
+            Some(rejected!(g
+                .f
+                .client
+                .mock_all_auths()
+                .try_governance_execute(&executor, &id)))
+        }
+        Branch::GovernanceDuplicateSignature => {
+            let g = Governed::new();
+            let id = g.propose_fee(&g.a, 100);
+            g.f.client.mock_all_auths().governance_sign(&g.a, &id);
+            Some(rejected!(g
+                .f
+                .client
+                .mock_all_auths()
+                .try_governance_sign(&g.a, &id)))
+        }
+        Branch::GovernanceSignaturesInsufficient => {
+            let g = Governed::new();
+            let id = g.propose_fee(&g.a, 100);
+            g.f.client.mock_all_auths().governance_sign(&g.a, &id);
+            g.mature();
+            Some(rejected!(g
+                .f
+                .client
+                .mock_all_auths()
+                .try_governance_execute(&Address::generate(&g.f.env), &id)))
+        }
+        Branch::GovernanceTimelockRequired => {
+            let g = Governed::new();
+            Some(rejected!(g
+                .f
+                .client
+                .mock_all_auths()
+                .try_set_fee_bps(&g.f.governor, &100)))
+        }
     }
 }
 
@@ -1146,7 +1384,23 @@ fn stream_error_variant_list_is_exhaustive() {
             | StreamError::NoPendingOwnership
             | StreamError::OwnershipProposalExpired
             | StreamError::InvalidTransferTarget
-            | StreamError::OwnershipProposalPending => StreamError::ALL.contains(&e),
+            | StreamError::OwnershipProposalPending
+            | StreamError::GovernanceNotInitialized
+            | StreamError::GovernanceAlreadyInitialized
+            | StreamError::NotGovernanceSigner
+            | StreamError::GovernanceDuplicateSigner
+            | StreamError::GovernanceSignerSetEmpty
+            | StreamError::GovernanceTooManySigners
+            | StreamError::GovernanceSignersNotDistinct
+            | StreamError::GovernanceProposalNotFound
+            | StreamError::GovernanceVetoWindowOpen
+            | StreamError::GovernanceVetoWindowClosed
+            | StreamError::GovernanceVetoWindowTooShort
+            | StreamError::GovernanceAlreadyVetoed
+            | StreamError::GovernanceAlreadyExecuted
+            | StreamError::GovernanceDuplicateSignature
+            | StreamError::GovernanceSignaturesInsufficient
+            | StreamError::GovernanceTimelockRequired => StreamError::ALL.contains(&e),
         }
     }
 
