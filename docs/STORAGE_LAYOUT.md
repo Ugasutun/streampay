@@ -89,11 +89,14 @@ because it upgrades the running instance to those exact bytes:
 
 Use `stellar contract build`, not a bare `cargo build --target wasm32v1-none`:
 the CLI's optimize/embed pass is what makes the artifact deployable. Measured on
-this source, `stellar contract build` yields 98,821 bytes (the 120 KB budget in
-`.github/workflows/ci.yml`) while a plain cargo build yields 162,714 bytes —
-over the protocol's 131,072-byte contract-code entry limit, so the host refuses
-to write it and the upgrade cannot be replayed. The replay detects exactly that
-and reports it as an unusable artifact instead of a layout failure.
+this source the CLI yields 78,266 bytes, inside the 77 KB budget in
+`.github/workflows/ci.yml`; the same contract built without that pass measured
+162,714 bytes — over the protocol's 131,072-byte contract-code entry limit, so
+the host refuses to write it and the upgrade cannot be replayed. Current
+soroban-sdk makes the distinction for you: a bare cargo build for the wasm target
+now stops with `soroban-sdk requires stellar-cli v25.2.0+ to build a contract`.
+The replay detects an unusable artifact and reports it as such rather than as a
+layout failure.
 
 With no usable artifact the replay prints `SKIP upgrade_replay: …` and passes, so
 a unit-test-only run on a fresh clone is not broken — but in CI
