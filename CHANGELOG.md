@@ -213,6 +213,29 @@ interface: they are only ever appended to, never renumbered or reused.
   build`). Linked from the README and CONTRIBUTING.
 
 ### Changed
+- **Contract Wasm size (#58):** the deployed binary shrinks from 91,004 B to
+  60,386 B (59.0 KiB, under the new 60 KB CI budget). Doc comments on
+  interface items are no longer embedded into `contractspecv0` on-chain
+  (kept 1:1 for host rustdoc via `cfg_attr`), and the duplicated
+  stream-creation effects leg is consolidated into one helper. No storage,
+  event, error-code or signature change; the deploy digest and the
+  canonical interface hash do change — see `docs/WASM_SIZE.md` for the
+  operator notification procedure. Merged with `main` (ownership transfer)
+  the binary is 64,143 B: upstream's new interface adds 3,757 B on top of the
+  60,386 B this work reached, and every remaining non-interface lever was
+  measured at 0 B or negative. The CI budget is therefore raised deliberately
+  to the smallest whole KB the current interface fits (63 KB, 369 B of
+  headroom), with `docs/WASM_SIZE.md` recording why and naming the next
+  entrypoint addition as the trigger to revisit the contract split. Merging
+  the governance timelock then took the build to 84,682 B, because its new
+  interface items arrived with plain `///` docs again; re-applying Technique 1
+  with the new `scripts/gate_interface_docs.py` probe (55 doc groups, and four
+  entrypoints whose doc blocks the merge had duplicated) recovers 6,416 B and
+  lands the binary at **78,266 B**, 14,123 B of which is governance's code,
+  spec entries, event symbols and exports. The scan now runs as a CI step
+  ("Interface doc strings stay out of the Wasm spec") so the rule cannot regress
+  again, and the budget moves 63 → **77 KB** (582 B of headroom) under the same
+  rule.
 - **Deployment interface:** the contract now has a constructor. Deploy with
   the governor address as a constructor argument
   (`stellar contract deploy … -- --governor G…`); `scripts/deploy_testnet.sh`
@@ -277,6 +300,23 @@ interface: they are only ever appended to, never renumbered or reused.
   cannot ship a dead link again.
 - Create-form failures decode to `StreamError` names like every other path
   (they were surfaced as raw error strings).
+- `follow-redirects` 1.16.0 → 1.16.1 in `frontend/package-lock.json`. Two
+  high-severity advisories published 2026-10-20 (`GHSA-q3jh-wrc6-jgq8`,
+  `GHSA-8r9p-f939-6h3c`) cover `>= 1.16.0, < 1.16.1`, which turned
+  `npm audit --omit=dev --audit-level=high` red on every open pull request —
+  including the ones that touched no dependency. The package is transitive
+  (`@stellar/stellar-sdk` → `axios` → `follow-redirects`) and 1.16.1 already
+  satisfies the `^1.16.0` range axios declares, so this is a re-resolve of the
+  lockfile rather than an upgrade, and unlike the 0.3.0 `postcss`/`toml` case it
+  needed no `overrides` pin.
+- `rustls-webpki` 0.103.15 → 0.103.16 and `webpki-roots` 1.0.9 → 1.0.10 in
+  `Cargo.lock`. `RUSTSEC-2026-0382` and `RUSTSEC-2026-0381` (both published
+  2026-10-20) cover the emSign roots whose private keys are now public, and they
+  reach the workspace transitively through `reqwest` from `streampay-state`, so
+  the Security job's `cargo deny check` went red on every open pull request.
+  Both patches are in-range, so `cargo update -p` for each is a four-line lock
+  re-resolve — no crate added, no other crate moved, and no `deny.toml` ignore
+  entry needed.
 
 ## [0.3.0] - 2026-10-04
 

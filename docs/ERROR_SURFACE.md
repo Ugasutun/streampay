@@ -22,7 +22,7 @@ Every expected failure is a `StreamError` with a stable numeric code. This docum
 | 12 | `NotAuthorized` | reachable (4 branch(es)) | `accept_ownership_transfer`, `cancel_ownership_transfer`, `cancel_stream`, `propose_ownership_transfer` | the caller is neither the sender nor the recipient; the caller is neither the current sender nor the current recipient; the caller is not the proposal's named new owner; the caller did not create the pending ownership proposal |
 | 13 | `NothingToWithdraw` | reachable (1 branch(es)) | `withdraw_max` | nothing has accrued yet, or everything accrued was already withdrawn |
 | 14 | `FeeRateTooHigh` | reachable (1 branch(es)) | `set_fee_bps` | new_fee_bps exceeds MAX_FEE_BPS (the protocol cap) |
-| 15 | `NotGovernor` | reachable (2 branch(es)) | `accept_governor`, `cancel_upgrade`, `execute_upgrade`, `migrate_storage`, `nominate_governor`, `propose_upgrade`, `set_fee_bps`, `set_frozen`, `set_stream_policy`, `withdraw_treasury` | the caller is not the treasury governor; the caller is not the nominated governor |
+| 15 | `NotGovernor` | reachable (2 branch(es)) | `accept_governor`, `cancel_upgrade`, `execute_upgrade`, `governance_bootstrap`, `migrate_storage`, `nominate_governor`, `propose_upgrade`, `set_fee_bps`, `set_frozen`, `set_stream_policy`, `withdraw_treasury` | the caller is not the treasury governor; the caller is not the nominated governor |
 | 16 | `NoPendingGovernor` | reachable (1 branch(es)) | `accept_governor` | accept_governor with no nomination pending |
 | 17 | `InsufficientTreasuryBalance` | reachable (1 branch(es)) | `withdraw_treasury` | amount exceeds fees collected minus fees already withdrawn |
 | 18 | `IntentNotFound` | reachable (1 branch(es)) | `cancel_scheduled`, `execute_scheduled`, `get_intent`, `reclaim_expired` | no scheduled intent is stored under the id |
@@ -71,6 +71,22 @@ Every expected failure is a `StreamError` with a stable numeric code. This docum
 | 61 | `OwnershipProposalExpired` | reachable (1 branch(es)) | `accept_ownership_transfer` | the proposal's acceptance window has elapsed |
 | 62 | `InvalidTransferTarget` | reachable (1 branch(es)) | `propose_ownership_transfer` | the proposed target already holds that role |
 | 63 | `OwnershipProposalPending` | reachable (1 branch(es)) | `propose_ownership_transfer` | an unexpired ownership proposal already exists for the stream |
+| 64 | `GovernanceNotInitialized` | reachable (1 branch(es)) | `governance_execute`, `governance_propose`, `governance_sign`, `governance_veto` | the governance signer set has not been bootstrapped |
+| 65 | `GovernanceAlreadyInitialized` | reachable (1 branch(es)) | `governance_bootstrap` | governance_bootstrap was called but a signer set already exists |
+| 66 | `NotGovernanceSigner` | reachable (1 branch(es)) | `governance_propose`, `governance_sign`, `governance_veto` | the caller is not a member of the signer set |
+| 67 | `GovernanceDuplicateSigner` | reachable (1 branch(es)) | `governance_bootstrap`, `governance_execute`, `governance_propose` | the signer set lists the same address twice (one key in two slots) |
+| 68 | `GovernanceSignerSetEmpty` | reachable (1 branch(es)) | `governance_bootstrap`, `governance_execute`, `governance_propose` | the signer set is empty |
+| 69 | `GovernanceTooManySigners` | reachable (1 branch(es)) | `governance_bootstrap`, `governance_execute`, `governance_propose` | the signer set exceeds MAX_SIGNERS |
+| 70 | `GovernanceSignersNotDistinct` | reachable (1 branch(es)) | `governance_bootstrap`, `governance_execute`, `governance_propose` | the signer set holds fewer than two distinct keys |
+| 71 | `GovernanceProposalNotFound` | reachable (1 branch(es)) | `governance_execute`, `governance_sign`, `governance_veto` | no proposal is stored under the id |
+| 72 | `GovernanceVetoWindowOpen` | reachable (1 branch(es)) | `governance_execute` | execution was attempted before the veto window closed |
+| 73 | `GovernanceVetoWindowClosed` | reachable (1 branch(es)) | `governance_veto` | a veto was attempted after the veto window closed |
+| 74 | `GovernanceVetoWindowTooShort` | reachable (1 branch(es)) | `governance_bootstrap`, `governance_propose` | the veto window is shorter than MIN_VETO_WINDOW_SECONDS |
+| 75 | `GovernanceAlreadyVetoed` | reachable (1 branch(es)) | `governance_execute`, `governance_sign`, `governance_veto` | the proposal was vetoed and is dead |
+| 76 | `GovernanceAlreadyExecuted` | reachable (1 branch(es)) | `governance_execute`, `governance_sign`, `governance_veto` | the proposal has already been executed |
+| 77 | `GovernanceDuplicateSignature` | reachable (1 branch(es)) | `governance_sign` | this address already signed the proposal; execution needs two distinct keys |
+| 78 | `GovernanceSignaturesInsufficient` | reachable (1 branch(es)) | `governance_execute` | fewer than the required distinct, still-current signatures are recorded |
+| 79 | `GovernanceTimelockRequired` | reachable (1 branch(es)) | `execute_upgrade`, `migrate_storage`, `nominate_governor`, `propose_upgrade`, `set_fee_bps`, `set_frozen`, `set_oracle_config`, `set_stream_policy`, `withdraw_treasury` | the action requires an executed governance proposal now that governance is bootstrapped |
 
 ## Branch matrix (entrypoint × condition → error)
 
@@ -95,7 +111,7 @@ Every expected failure is a `StreamError` with a stable numeric code. This docum
 | `CancelSplitOverflow` | `cancel_stream` | `MathOverflow` | 11 | the cancel pro-rata split would underflow | defensive (unreachable) |
 | `PayoutOverflow` | `withdraw`, `withdraw_max`, `sponsored_withdraw` | `MathOverflow` | 11 | withdrawn + amount would overflow i128 | defensive (unreachable) |
 | `SetFeeRateTooHigh` | `set_fee_bps` | `FeeRateTooHigh` | 14 | new_fee_bps exceeds MAX_FEE_BPS (the protocol cap) | reachable |
-| `GovernorNotAllowed` | `set_fee_bps`, `nominate_governor`, `withdraw_treasury`, `set_frozen`, `propose_upgrade`, `cancel_upgrade`, `execute_upgrade`, `migrate_storage`, `set_stream_policy` | `NotGovernor` | 15 | the caller is not the treasury governor | reachable |
+| `GovernorNotAllowed` | `set_fee_bps`, `nominate_governor`, `withdraw_treasury`, `set_frozen`, `propose_upgrade`, `cancel_upgrade`, `execute_upgrade`, `migrate_storage`, `set_stream_policy`, `governance_bootstrap` | `NotGovernor` | 15 | the caller is not the treasury governor | reachable |
 | `AcceptGovernorNoPending` | `accept_governor` | `NoPendingGovernor` | 16 | accept_governor with no nomination pending | reachable |
 | `AcceptGovernorNotNominee` | `accept_governor` | `NotGovernor` | 15 | the caller is not the nominated governor | reachable |
 | `WithdrawTreasuryAmountNonPositive` | `withdraw_treasury` | `ZeroAmount` | 9 | treasury withdrawal amount is zero or negative | reachable |
@@ -153,6 +169,22 @@ Every expected failure is a `StreamError` with a stable numeric code. This docum
 | `OwnershipProposalExpired` | `accept_ownership_transfer` | `OwnershipProposalExpired` | 61 | the proposal's acceptance window has elapsed | reachable |
 | `NoPendingOwnership` | `accept_ownership_transfer`, `cancel_ownership_transfer` | `NoPendingOwnership` | 60 | no ownership proposal is stored for the stream | reachable |
 | `CancelProposalNotProposer` | `cancel_ownership_transfer` | `NotAuthorized` | 12 | the caller did not create the pending ownership proposal | reachable |
+| `GovernanceNotInitialized` | `governance_propose`, `governance_sign`, `governance_veto`, `governance_execute` | `GovernanceNotInitialized` | 64 | the governance signer set has not been bootstrapped | reachable |
+| `GovernanceAlreadyInitialized` | `governance_bootstrap` | `GovernanceAlreadyInitialized` | 65 | governance_bootstrap was called but a signer set already exists | reachable |
+| `NotGovernanceSigner` | `governance_propose`, `governance_sign`, `governance_veto` | `NotGovernanceSigner` | 66 | the caller is not a member of the signer set | reachable |
+| `GovernanceDuplicateSigner` | `governance_bootstrap`, `governance_propose`, `governance_execute` | `GovernanceDuplicateSigner` | 67 | the signer set lists the same address twice (one key in two slots) | reachable |
+| `GovernanceSignerSetEmpty` | `governance_bootstrap`, `governance_propose`, `governance_execute` | `GovernanceSignerSetEmpty` | 68 | the signer set is empty | reachable |
+| `GovernanceTooManySigners` | `governance_bootstrap`, `governance_propose`, `governance_execute` | `GovernanceTooManySigners` | 69 | the signer set exceeds MAX_SIGNERS | reachable |
+| `GovernanceSignersNotDistinct` | `governance_bootstrap`, `governance_propose`, `governance_execute` | `GovernanceSignersNotDistinct` | 70 | the signer set holds fewer than two distinct keys | reachable |
+| `GovernanceProposalNotFound` | `governance_sign`, `governance_veto`, `governance_execute` | `GovernanceProposalNotFound` | 71 | no proposal is stored under the id | reachable |
+| `GovernanceVetoWindowOpen` | `governance_execute` | `GovernanceVetoWindowOpen` | 72 | execution was attempted before the veto window closed | reachable |
+| `GovernanceVetoWindowClosed` | `governance_veto` | `GovernanceVetoWindowClosed` | 73 | a veto was attempted after the veto window closed | reachable |
+| `GovernanceVetoWindowTooShort` | `governance_bootstrap`, `governance_propose` | `GovernanceVetoWindowTooShort` | 74 | the veto window is shorter than MIN_VETO_WINDOW_SECONDS | reachable |
+| `GovernanceAlreadyVetoed` | `governance_sign`, `governance_veto`, `governance_execute` | `GovernanceAlreadyVetoed` | 75 | the proposal was vetoed and is dead | reachable |
+| `GovernanceAlreadyExecuted` | `governance_sign`, `governance_veto`, `governance_execute` | `GovernanceAlreadyExecuted` | 76 | the proposal has already been executed | reachable |
+| `GovernanceDuplicateSignature` | `governance_sign` | `GovernanceDuplicateSignature` | 77 | this address already signed the proposal; execution needs two distinct keys | reachable |
+| `GovernanceSignaturesInsufficient` | `governance_execute` | `GovernanceSignaturesInsufficient` | 78 | fewer than the required distinct, still-current signatures are recorded | reachable |
+| `GovernanceTimelockRequired` | `set_fee_bps`, `nominate_governor`, `withdraw_treasury`, `set_stream_policy`, `set_frozen`, `propose_upgrade`, `execute_upgrade`, `migrate_storage`, `set_oracle_config` | `GovernanceTimelockRequired` | 79 | the action requires an executed governance proposal now that governance is bootstrapped | reachable |
 
 ## Retired codes
 
