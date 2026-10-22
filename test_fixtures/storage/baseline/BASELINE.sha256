@@ -1,0 +1,17 @@
+# Pinned SHA-256 digest of the committed baseline release artifact.
+#
+# The upgrade replay boots this exact bytecode and swaps the live instance
+# over to the in-development build, so the bytes are the anchor for "what the
+# released line wrote". The release workflow's attestation ceremony has not
+# run yet (no v* tags exist), so this in-repo digest is what makes the
+# artifact reproducible instead of trusted by assertion: every reader in
+# `storage_golden` verifies the file against this line before using it, and
+# `scripts/storage_golden_smoke.sh` checks it before any testnet deploy.
+#
+# Reproduce: build the v0.3.0 release-line source with
+# `stellar contract build` (stellar-cli 28.1.0, rust-toolchain.toml channel),
+# then `sha256sum target/wasm32v1-none/release/streampay_contract.wasm` must
+# equal the line below. When release.yml first attests this build, its
+# published SHA256SUMS entry must equal this digest; § "Replacing the
+# baseline wasm" in docs/STORAGE_LAYOUT.md covers a legitimate change.
+fa1b4481671bc1b9f65e52b3e97717aba072a666d0e32ed9cc493acaba10a11d  streampay-v0.3.0-baseline.wasm
