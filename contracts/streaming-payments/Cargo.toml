@@ -26,4 +26,10 @@ ed25519-dalek = "2.2.0"
 proptest = "1.6"
 serde_json = "1"
 streampay-model = { version = "0.1.0", path = "../../model" }
+# Storage-layout fixture corpus (`src/storage_golden/`): manifest serialization
+# and ledger-snapshot dumps. Both crates are already in the workspace lock
+# graph through soroban-sdk's testutils dependency, so `--locked` CI is
+# unaffected.
+serde = { version = "1.0", features = ["derive"] }
+soroban-ledger-snapshot = "29.0.1"
 

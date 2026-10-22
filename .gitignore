@@ -59,6 +59,19 @@ fuzz/campaign/
 fuzz/triage/
 fuzz/coverage/
 
+# ---------------------------------------------------------------------------
+# Storage-layout fixture corpus (issue #210)
+#
+# The committed blobs under test_fixtures/storage/ ARE the test data, so the
+# baseline release wasm they carry must escape the global `*.wasm` ignore
+# above (build outputs stay ignored).
+!test_fixtures/**/*.wasm
+
+# The host writes a ledger snapshot per test run. The storage-golden ones embed
+# whole wasm blobs (hundreds of KB each) and carry no review signal: the
+# committed corpus under test_fixtures/storage/ is the artifact of record.
+contracts/streaming-payments/test_snapshots/storage_golden/
+
 # Python bytecode
 __pycache__/
 
