@@ -51,7 +51,6 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use std::fs;
 use std::string::String;
 use std::vec::Vec;
 
@@ -67,7 +66,7 @@ use crate::stream::MIN_UPGRADE_DELAY_SECONDS;
 use crate::test_client::StreamingPaymentsClient as Client;
 use crate::{sponsor, GovernanceAction, StreamInput, StreamPolicy, StreamingPayments};
 
-use super::{baseline_wasm_path, events_from};
+use super::events_from;
 
 /// Base absolute ledger time for the whole scenario.
 const T0: u64 = 1_700_000_000;
@@ -157,13 +156,7 @@ fn deploy(env: &Env, governor: &Address, baseline_wasm: Option<&Vec<u8>>) -> (Ad
 /// ever used as the value of the golden `ContractUpgraded` payload, so the
 /// committed baseline artifact is the natural, deterministic choice.
 fn upload_upgrade_target(env: &Env) -> BytesN<32> {
-    let path = baseline_wasm_path();
-    let bytes = fs::read(&path).unwrap_or_else(|e| {
-        panic!(
-            "the fixture generator needs {} as a valid upgrade target: {e}",
-            path.display()
-        )
-    });
+    let bytes = super::baseline_wasm_bytes(env);
     env.deployer()
         .upload_contract_wasm(Bytes::from_slice(env, &bytes))
 }

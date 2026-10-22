@@ -66,6 +66,43 @@ pub(crate) fn baseline_wasm_path() -> PathBuf {
     fixtures_dir().join("baseline/streampay-v0.3.0-baseline.wasm")
 }
 
+/// The committed baseline artifact, verified against the digest pinned in
+/// `baseline/BASELINE.sha256`. Every reader of the baseline bytecode goes
+/// through here: a swapped or corrupted artifact fails loudly before the
+/// replay boots or upgrades from it, instead of silently treating the wrong
+/// bytes as the released build.
+pub(crate) fn baseline_wasm_bytes(env: &Env) -> Vec<u8> {
+    use soroban_sdk::Bytes;
+    let path = baseline_wasm_path();
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("{} is a committed fixture: {e}", path.display()));
+    let sums_path = fixtures_dir().join("baseline/BASELINE.sha256");
+    let sums = std::fs::read_to_string(&sums_path)
+        .unwrap_or_else(|e| panic!("{} pins the baseline digest: {e}", sums_path.display()));
+    let pinned = sums
+        .lines()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty() && !l.starts_with('#'))
+        .and_then(|l| l.split_whitespace().next())
+        .expect("BASELINE.sha256 has no digest line");
+    let got = env
+        .crypto()
+        .sha256(&Bytes::from_slice(env, &bytes))
+        .to_bytes()
+        .to_array();
+    let got: String = got.iter().map(|b| format!("{b:02x}")).collect();
+    if got != pinned {
+        panic!(
+            "baseline wasm digest mismatch: {} hashes to {got} but {} pins {pinned}: \
+             the replay must boot exactly the pinned release bytes (see \
+             docs/STORAGE_LAYOUT.md, 'Replacing the baseline wasm')",
+            path.display(),
+            sums_path.display(),
+        );
+    }
+    bytes
+}
+
 // ------------------------------------------------------------- xdr <-> bin --
 
 /// Record blob layout: `u32le | LedgerKey xdr | u32le | LedgerEntry xdr`.
